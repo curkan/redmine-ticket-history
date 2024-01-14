@@ -1,0 +1,93 @@
+package main
+
+import (
+	"log"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/evertras/bubble-table/table"
+)
+
+const (
+	columnKeyNumber      = "number"
+	columnKeyTitle       = "title"
+)
+
+type Model struct {
+	table table.Model
+}
+
+func NewModel() Model {
+	columns := []table.Column{
+		table.NewColumn(columnKeyNumber, "Number", 7).WithFiltered(true),
+		table.NewColumn(columnKeyTitle, "Title", 50).WithFiltered(true),
+	}
+
+	return Model{
+		table: table.
+			New(columns).
+			Filtered(true).
+			Focused(true).
+			WithPageSize(2).
+			WithRows([]table.Row{
+				table.NewRow(table.RowData{
+					columnKeyNumber:      "2134545",
+					columnKeyTitle:       "Computer Systems : A Programmer's Perspective",
+				}),
+				table.NewRow(table.RowData{
+					columnKeyNumber:      "2134546",
+					columnKeyTitle:       "Effective Java : 3rd Edition",
+				}),
+				table.NewRow(table.RowData{
+					columnKeyNumber:      "2134547",
+					columnKeyTitle:       "Structure and Interpretation of Computer Programs - 2nd Edition (MIT)",
+				}),
+				table.NewRow(table.RowData{
+					columnKeyNumber:      "2134548",
+					columnKeyTitle:       "Game Programming Patterns",
+				}),
+			}),
+	}
+}
+
+func (m Model) Init() tea.Cmd {
+	return nil
+}
+
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var (
+		cmd  tea.Cmd
+		cmds []tea.Cmd
+	)
+
+	m.table, cmd = m.table.Update(msg)
+	cmds = append(cmds, cmd)
+
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			cmds = append(cmds, tea.Quit)
+		}
+
+	}
+
+	return m, tea.Batch(cmds...)
+}
+
+func (m Model) View() string {
+	body := strings.Builder{}
+
+	body.WriteString("Ваши тикеты\n")
+	body.WriteString(m.table.View())
+
+	return body.String()
+}
+
+func main() {
+	p := tea.NewProgram(NewModel())
+
+	if err := p.Start(); err != nil {
+		log.Fatal(err)
+	}
+}
