@@ -2,141 +2,145 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"strings"
 
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-type Styles struct {
-	BorderColor lipgloss.Color
-	InputField  lipgloss.Style
+const listHeight = 14
+
+var (
+	titleStyle        = lipgloss.NewStyle().MarginLeft(2)
+	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
+	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("170"))
+	paginationStyle   = list.DefaultStyles().PaginationStyle.PaddingLeft(4)
+	helpStyle         = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
+	quitTextStyle     = lipgloss.NewStyle().Margin(1, 0, 2, 4)
+)
+
+type item struct {
+	title string
 }
 
-func DefaultStyles() *Styles {
-	s := new(Styles)
-	s.BorderColor = lipgloss.Color("36")
-	s.InputField = lipgloss.NewStyle().BorderForeground(s.BorderColor).BorderStyle(lipgloss.NormalBorder()).Padding(1).Width(80)
-	return s
-}
+func (i item) FilterValue() string { return "" }
 
-type Main struct {
-	styles    *Styles
-	index     int
-	questions []Question
-	width     int
-	height    int
-	done      bool
-}
+type itemDelegate struct{}
 
-type Question struct {
-	question string
-	answer   string
-	input    Input
-}
+func (d itemDelegate) Height() int                             { return 1 }
+func (d itemDelegate) Spacing() int                            { return 0 }
+func (d itemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
+	i, ok := listItem.(item)
+	if !ok {
+		return
+	}
 
-func newQuestion(q string) Question {
-	return Question{question: q}
-}
+	str := fmt.Sprintf("%d. %s", index+1, i.title)
 
-func newShortQuestion(q string) Question {
-	question := newQuestion(q)
-	model := NewShortAnswerField()
-	question.input = model
-	return question
-}
-
-func newLongQuestion(q string) Question {
-	question := newQuestion(q)
-	model := NewLongAnswerField()
-	question.input = model
-	return question
-}
-
-func New(questions []Question) *Main {
-	styles := DefaultStyles()
-	return &Main{styles: styles, questions: questions}
-}
-
-func (m Main) Init() tea.Cmd {
-	return m.questions[m.index].input.Blink
-}
-
-func (m Main) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	current := &m.questions[m.index]
-	var cmd tea.Cmd
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
-			return m, tea.Quit
-		case "enter":
-			if m.index == len(m.questions)-1 {
-				m.done = true
-			}
-			current.answer = current.input.Value()
-			m.Next()
-			return m, current.input.Blur
+	fn := itemStyle.Render
+	if index == m.Index() {
+		fn = func(s ...string) string {
+			return selectedItemStyle.Render("> " + strings.Join(s, " "))
 		}
 	}
-	current.input, cmd = current.input.Update(msg)
+
+	fmt.Fprint(w, fn(str))
+}
+
+type model struct {
+	list     list.Model
+	choice   string
+	quitting bool
+}
+
+func (m model) Init() tea.Cmd {
+	return nil
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.list.SetWidth(msg.Width)
+		return m, nil
+
+	case tea.KeyMsg:
+		switch keypress := msg.String(); keypress {
+		case "q", "ctrl+c":
+			m.quitting = true
+			return m, tea.Quit
+
+		case "enter":
+			i, ok := m.list.SelectedItem().(item)
+			if ok {
+				m.choice = string(i.title)
+			}
+
+			switch m.list.Index() {
+			case 0:
+
+				// cmd := add_ticket.Update(msg)
+				log.Printf("Выбрано добавление: %s", m.list.Index())
+			case 1:
+				log.Printf("Выбран просмотр: %s", m.list.Index())
+			}
+
+			return m, tea.Quit
+		}
+	}
+
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
 	return m, cmd
 }
 
-func (m Main) View() string {
-	current := m.questions[m.index]
-	if m.done {
-		var output string
-		for _, q := range m.questions {
-			output += fmt.Sprintf("%s: %s\n", q.question, q.answer)
-		}
-		return output
+func (m model) View() string {
+	if m.choice != "" {
+		return quitTextStyle.Render(fmt.Sprintf("%s? Sounds good to me.", m.choice))
 	}
-	if m.width == 0 {
-		return "loading..."
+	if m.quitting {
+		return quitTextStyle.Render("Not hungry? That’s cool.")
 	}
-	// stack some left-aligned strings together in the center of the window
-	return lipgloss.Place(
-		m.width,
-		m.height,
-		lipgloss.Center,
-		lipgloss.Center,
-		lipgloss.JoinVertical(
-			lipgloss.Left,
-			current.question,
-			m.styles.InputField.Render(current.input.View()),
-		),
-	)
+
+	return "\n" + m.list.View()
 }
 
-func (m *Main) Next() {
-	if m.index < len(m.questions)-1 {
-		m.index++
-	} else {
-		m.index = 0
-	}
+func newItem(title string) item {
+	return item{title: title}
 }
 
 func main() {
-	// init styles; optional, just showing as a way to organize styles
-	// start bubble tea and init first model
-	questions := []Question{
-		newShortQuestion("Number of ticket"),
-	}
-	main := New(questions)
-
 	f, err := tea.LogToFile("debug.log", "debug")
 	if err != nil {
 		fmt.Println("fatal:", err)
 		os.Exit(1)
 	}
+
 	defer f.Close()
-	p := tea.NewProgram(*main, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		log.Fatal(err)
+
+	items := []list.Item{
+		newItem("Добавить тикет"),
+		newItem("Найти тикет"),
+	}
+
+	const defaultWidth = 10
+
+	l := list.New(items, itemDelegate{}, defaultWidth, listHeight)
+	l.Title = "Что вы хотите сделать?"
+	l.SetShowStatusBar(false)
+	l.SetFilteringEnabled(false)
+	l.Styles.Title = titleStyle
+	l.Styles.PaginationStyle = paginationStyle
+	l.Styles.HelpStyle = helpStyle
+
+	m := model{list: l}
+
+	if _, err := tea.NewProgram(m).Run(); err != nil {
+		fmt.Println("Error running program:", err)
+		os.Exit(1)
 	}
 }
